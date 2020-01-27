@@ -40,6 +40,10 @@ gsperc = '=({0}/{1})'
 deviceinfo = {'suspend':dict(),'resume':dict()}
 trash = []
 mystarttime = time.time()
+try:
+	testcache = op.join(os.getenv('HOME'), '.multitests')
+except:
+	testcache = ''
 
 def pprint(msg, withtime=True):
 	if withtime:
@@ -1698,10 +1702,49 @@ def genHtml(subdir, count=0, force=False):
 	mp = MultiProcess(cmds, 600)
 	mp.run(count)
 
-def find_multitests(folder, urlprefix):
+def update_cache(folder, multitests):
+	if not testcache or (op.exists(testcache) and \
+		not os.access(testcache, os.W_OK)):
+		return
+	oldcache = []
+	if os.access(testcache, os.R_OK):
+		fp, ap = open(testcache, 'r'), op.abspath(folder)
+		for line in fp:
+			if line.startswith(ap):
+				oldcache.append(line.strip())
+		fp.close()
+	fp = open(testcache, 'a')
+	for indir, urlprefix in multitests:
+		a = op.abspath(indir)
+		if a not in oldcache:
+			fp.write('%s\n' % a)
+	fp.close()
+
+def find_multitests(folder, urlprefix, usecache=True, cacheonly=False):
+	# load up multitests folder cache
+	multitests = []
+	if usecache and cacheonly and testcache and os.access(testcache, os.R_OK):
+		oldcache = []
+		fp, ap = open(testcache, 'r'), op.abspath(folder)
+		for line in fp:
+			if line.startswith(ap):
+				oldcache.append(line.strip())
+		fp.close()
+		for a in oldcache:
+			r = op.relpath(a, ap)
+			dirname = op.normpath(op.join(folder, r))
+			if urlprefix:
+				urlp = urlprefix if r == '.' else op.join(urlprefix, r)
+			else:
+				urlp = ''
+			multitests.append((dirname, urlp))
+			pprint('(%d) %s' % (len(multitests), r))
+		if len(multitests) < 1:
+			doError('no folders matching suspend-%y%m%d-%H%M%S found')
+		pprint('%d multitest folders found' % len(multitests))
+		return multitests
 	# search for stress test output folders with at least one test
 	pprint('searching folder for multitest data')
-	multitests = []
 	for dirname, dirnames, filenames in os.walk(folder, followlinks=True):
 		for dir in dirnames:
 			if re.match('suspend-[0-9]*-[0-9]*$', dir):
@@ -1711,17 +1754,19 @@ def find_multitests(folder, urlprefix):
 				else:
 					urlp = ''
 				multitests.append((dirname, urlp))
+				pprint('(%d) %s' % (len(multitests), r))
 				break
 	if len(multitests) < 1:
 		doError('no folders matching suspend-%y%m%d-%H%M%S found')
+	if usecache:
+		update_cache(folder, multitests)
 	pprint('%d multitest folders found' % len(multitests))
 	return multitests
 
 def generate_test_timelines(args, multitests):
 	pprint('GENERATING SLEEPGRAPH TIMELINES')
 	sg.sysvals.usedevsrc = True
-	for testinfo in multitests:
-		indir, urlprefix = testinfo
+	for indir, urlprefix in multitests:
 		if args.parallel >= 0:
 			genHtml(indir, args.parallel, args.regenhtml)
 		else:
@@ -1729,8 +1774,7 @@ def generate_test_timelines(args, multitests):
 
 def generate_test_spreadsheets(args, multitests, buglist):
 	if args.parallel < 0 or len(multitests) < 2:
-		for testinfo in multitests:
-			indir, urlprefix = testinfo
+		for indir, urlprefix in multitests:
 			pm_graph_report(args, indir, args.tpath, urlprefix, buglist, args.htmlonly)
 		return
 	# multiprocess support, requires parallel arg and multiple tests
@@ -1745,8 +1789,7 @@ def generate_test_spreadsheets(args, multitests, buglist):
 	else:
 		cmdhead = '%s -create test -tpath "%s"' % (cexec, args.tpath)
 	cmds = []
-	for testinfo in multitests:
-		indir, urlprefix = testinfo
+	for indir, urlprefix in multitests:
 		cmds.append(cmdhead + ' -urlprefix "{0}" {1}'.format(urlprefix, indir))
 	mp = MultiProcess(cmds, 86400)
 	mp.run(args.parallel)
@@ -1767,8 +1810,7 @@ def generate_summary_spreadsheet(args, multitests, buglist):
 
 	pprint('loading multitest html summary files')
 	data = []
-	for testinfo in multitests:
-		indir, urlprefix = testinfo
+	for indir, urlprefix in multitests:
 		file = op.join(indir, 'summary.html')
 		if op.exists(file):
 			info(file, data, args)
@@ -1831,8 +1873,7 @@ def sort_and_copy(args, multitestdata):
 	multitests, kernels = [], []
 	if not args.webdir:
 		return (multitests, kernels)
-	for testinfo in multitestdata:
-		indir, urlprefix = testinfo
+	for indir, urlprefix in multitestdata:
 		data, html = False, ''
 		for dir in sorted(os.listdir(indir)):
 			if not re.match('suspend-[0-9]*-[0-9]*$', dir) or not op.isdir(indir+'/'+dir):
@@ -1881,6 +1922,7 @@ def sort_and_copy(args, multitestdata):
 		if kernel not in kernels:
 			kernels.append(kernel)
 		multitests.append((outdir, urlprefix))
+	update_cache(args.webdir, multitests)
 	return (multitests, kernels)
 
 def rcsort(args, kernels):
@@ -2035,6 +2077,7 @@ if __name__ == '__main__':
 	parser.add_argument('-datadir', metavar='folder')
 	parser.add_argument('-rcdir', metavar='folder')
 	parser.add_argument('-rmtar', action='store_true')
+	parser.add_argument('-cache', action='store_true')
 	# required positional arguments
 	parser.add_argument('folder')
 	args = parser.parse_args()
@@ -2073,7 +2116,8 @@ if __name__ == '__main__':
 		buglist = pickle.load(open(args.bugfile, 'rb'))
 
 	# get the multitests from the folder
-	multitests = find_multitests(args.folder, args.urlprefix)
+	multitests = find_multitests(args.folder, args.urlprefix,
+		not tarball, args.cache)
 
 	# regenerate any missing timlines
 	if args.genhtml or args.regenhtml:
@@ -2111,7 +2155,7 @@ if __name__ == '__main__':
 			if not generate_summary_spreadsheet(args, multitests, buglist):
 				pprint('WARNING: no summary for kernel %s' % kernel)
 		if args.rcdir:
-			args.spath = op.join(op.dirname(op.dirname(args.spath)), '{rc}_summary')
+			args.spath = 'pm-graph-test/summary/{rc}_summary'
 			args.urlprefix = urlprefix
 			rcs = rcsort(args, kernels)
 			for rc in rcs:
