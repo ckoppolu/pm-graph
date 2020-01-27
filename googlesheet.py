@@ -1856,6 +1856,7 @@ def generate_summary_spreadsheet(args, multitests, buglist):
 	return True
 
 def folder_as_tarball(args):
+	pprint('Verifying the tarball is a tar.gz')
 	res = call('tar -tzf %s > /dev/null 2>&1' % args.folder, shell=True)
 	if res != 0:
 		doError('%s is not a tarball(gz) or a folder' % args.folder, False)
