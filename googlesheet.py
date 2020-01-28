@@ -1950,6 +1950,8 @@ def rcsort(args, kernels):
 			link = op.join(rcdir, kernel)
 			if op.exists(link):
 				continue
+			if op.lexists(link):
+				os.remove(link)
 			os.symlink(dir, link)
 	return rclist
 
