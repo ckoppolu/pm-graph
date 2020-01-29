@@ -1923,15 +1923,25 @@ def sort_and_copy(args, multitestdata):
 			kernels.append(kernel)
 		multitests.append((outdir, urlprefix))
 	update_cache(args.webdir, multitests)
-	rcs = rcsort(args, kernels)
+	if args.sortdir:
+		rcs = rcsort(args, kernels)
+	else:
+		rcs = []
 	return (multitests, kernels, rcs)
 
+def sfolder(args, type):
+	if type == 'rc':
+		return op.join(op.abspath(args.sortdir), 'rc')
+	return ''
+
 def rcsort(args, kernels):
-	if not args.webdir or not args.rcdir:
-		doError('you must supply a -webdir and -rcdir to sort by rc')
+	if not args.webdir or not args.sortdir:
+		doError('you must supply a -webdir and -sortdir to sort by rc')
 	webcache, rccache = load_cache(args.webdir), []
 	rclist, rchash = [], dict()
-	rcdir, webdir = op.abspath(args.rcdir), op.abspath(args.webdir)
+	sortdir, webdir = sfolder(args, 'rc'), op.abspath(args.webdir)
+	if not op.exists(sortdir):
+		os.mkdir(sortdir)
 	for kernel in sorted(os.listdir(webdir)):
 		dir = op.join(webdir, kernel)
 		if not op.isdir(dir):
@@ -1941,10 +1951,10 @@ def rcsort(args, kernels):
 			continue
 		if len(webcache) > 0:
 			# add rc links to multitests already in cache
-			myrcdir = op.join(rcdir, rc)
+			mysortdir = op.join(sortdir, rc)
 			for a in webcache:
 				if a.startswith(dir+'/'):
-					rccache.append((a.replace(webdir, myrcdir), ''))
+					rccache.append((a.replace(webdir, mysortdir), ''))
 		if op.islink(dir):
 			dir = op.realpath(dir)
 		if kernel in kernels and rc not in rclist:
@@ -1953,18 +1963,18 @@ def rcsort(args, kernels):
 			rchash[rc] = []
 		rchash[rc].append((dir, kernel))
 	for rc in sorted(rchash):
-		myrcdir = op.join(args.rcdir, rc)
-		if not op.exists(myrcdir):
-			os.mkdir(myrcdir)
+		mysortdir = op.join(sortdir, rc)
+		if not op.exists(mysortdir):
+			os.mkdir(mysortdir)
 		for dir, kernel in rchash[rc]:
-			link = op.join(myrcdir, kernel)
+			link = op.join(mysortdir, kernel)
 			if op.exists(link):
 				continue
 			if op.lexists(link):
 				os.remove(link)
 			os.symlink(dir, link)
 	if len(webcache) > 0:
-		update_cache(rcdir, rccache)
+		update_cache(sortdir, rccache)
 	return rclist
 
 def doError(msg, help=False):
@@ -2090,7 +2100,7 @@ if __name__ == '__main__':
 	parser.add_argument('-bugfile', metavar='file')
 	parser.add_argument('-webdir', metavar='folder')
 	parser.add_argument('-datadir', metavar='folder')
-	parser.add_argument('-rcdir', metavar='folder')
+	parser.add_argument('-sortdir', metavar='folder')
 	parser.add_argument('-rmtar', action='store_true')
 	parser.add_argument('-cache', action='store_true')
 	# required positional arguments
@@ -2098,11 +2108,17 @@ if __name__ == '__main__':
 	args = parser.parse_args()
 	tarball, kernels = False, []
 
-	for dir in [args.webdir, args.datadir, args.rcdir]:
+	for dir in [args.webdir, args.datadir, args.sortdir]:
 		if not dir:
 			continue
 		if not op.exists(dir) or not op.isdir(dir):
 			doError('%s does not exist' % dir, False)
+
+	if args.folder == 'sorteverything':
+		if not args.webdir or not args.sortdir:
+			doError('sortall requires -webdir and -sortdir', False)
+		rcsort(args, [])
+		sys.exit(0)
 
 	if not op.exists(args.folder):
 		doError('%s does not exist' % args.folder, False)
@@ -2169,12 +2185,12 @@ if __name__ == '__main__':
 			multitests = find_multitests(args.folder, args.urlprefix, args.cache)
 			if not generate_summary_spreadsheet(args, multitests, buglist):
 				pprint('WARNING: no summary for kernel %s' % kernel)
-		if args.rcdir:
+		if args.sortdir:
 			args.spath = 'pm-graph-test/summary/{rc}_summary'
 			args.urlprefix = urlprefix
 			for rc in rcs:
 				pprint('CREATING SUMMARY FOR RELEASE CANDIDATE %s' % rc)
-				args.folder = op.join(args.rcdir, rc)
+				args.folder = op.join(sfolder(args, 'rc'), rc)
 				multitests = find_multitests(args.folder, args.urlprefix, args.cache)
 				if not generate_summary_spreadsheet(args, multitests, buglist):
 					pprint('WARNING: no summary for RC %s' % rc)
