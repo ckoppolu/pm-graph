@@ -1702,17 +1702,21 @@ def genHtml(subdir, count=0, force=False):
 	mp = MultiProcess(cmds, 600)
 	mp.run(count)
 
+def load_cache(folder):
+	cache = []
+	if testcache and os.access(testcache, os.R_OK):
+		fp, ap = open(testcache, 'r'), op.abspath(folder)
+		for line in fp:
+			if line.startswith(ap):
+				cache.append(line.strip())
+		fp.close()
+	return cache
+
 def update_cache(folder, multitests):
 	if not testcache or (op.exists(testcache) and \
 		not os.access(testcache, os.W_OK)):
 		return
-	oldcache = []
-	if os.access(testcache, os.R_OK):
-		fp, ap = open(testcache, 'r'), op.abspath(folder)
-		for line in fp:
-			if line.startswith(ap):
-				oldcache.append(line.strip())
-		fp.close()
+	oldcache = load_cache(folder)
 	fp = open(testcache, 'a')
 	for indir, urlprefix in multitests:
 		a = op.abspath(indir)
@@ -1720,16 +1724,11 @@ def update_cache(folder, multitests):
 			fp.write('%s\n' % a)
 	fp.close()
 
-def find_multitests(folder, urlprefix, usecache=True, cacheonly=False):
+def find_multitests(folder, urlprefix, cacheonly=False, usecache=True):
 	# load up multitests folder cache
 	multitests = []
 	if usecache and cacheonly and testcache and os.access(testcache, os.R_OK):
-		oldcache = []
-		fp, ap = open(testcache, 'r'), op.abspath(folder)
-		for line in fp:
-			if line.startswith(ap):
-				oldcache.append(line.strip())
-		fp.close()
+		oldcache, ap = load_cache(folder), op.abspath(folder)
 		for a in oldcache:
 			r = op.relpath(a, ap)
 			dirname = op.normpath(op.join(folder, r))
@@ -1856,12 +1855,12 @@ def generate_summary_spreadsheet(args, multitests, buglist):
 	return True
 
 def folder_as_tarball(args):
+	if not args.webdir:
+		doError('you must supply a -webdir when processing a tarball')
 	pprint('Verifying the tarball is a tar.gz')
 	res = call('tar -tzf %s > /dev/null 2>&1' % args.folder, shell=True)
 	if res != 0:
 		doError('%s is not a tarball(gz) or a folder' % args.folder, False)
-	if not args.webdir:
-		doError('you must supply a -webdir when processing a tarball')
 	tdir, tball = mkdtemp(prefix='sleepgraph-multitest-data-'), args.folder
 	pprint('Extracting tarball to %s...' % tdir)
 	call('tar -C %s -xvzf %s > /dev/null' % (tdir, tball), shell=True)
@@ -1871,9 +1870,9 @@ def folder_as_tarball(args):
 	return [tdir, tball]
 
 def sort_and_copy(args, multitestdata):
-	multitests, kernels = [], []
 	if not args.webdir:
-		return (multitests, kernels)
+		doError('you must supply a -webdir when processing a tarball')
+	multitests, kernels = [], []
 	for indir, urlprefix in multitestdata:
 		data, html = False, ''
 		for dir in sorted(os.listdir(indir)):
@@ -1924,35 +1923,48 @@ def sort_and_copy(args, multitestdata):
 			kernels.append(kernel)
 		multitests.append((outdir, urlprefix))
 	update_cache(args.webdir, multitests)
-	return (multitests, kernels)
+	rcs = rcsort(args, kernels)
+	return (multitests, kernels, rcs)
 
 def rcsort(args, kernels):
+	if not args.webdir or not args.rcdir:
+		doError('you must supply a -webdir and -rcdir to sort by rc')
+	webcache, rccache = load_cache(args.webdir), []
 	rclist, rchash = [], dict()
-	for dirname in sorted(os.listdir(args.webdir)):
-		dir = op.join(args.webdir, dirname)
+	rcdir, webdir = op.abspath(args.rcdir), op.abspath(args.webdir)
+	for kernel in sorted(os.listdir(webdir)):
+		dir = op.join(webdir, kernel)
 		if not op.isdir(dir):
 			continue
-		rc = kernelRC(dirname, True)
+		rc = kernelRC(kernel, True)
 		if not rc:
 			continue
+		if len(webcache) > 0:
+			# add rc links to multitests already in cache
+			myrcdir = op.join(rcdir, rc)
+			for a in webcache:
+				if a.startswith(dir+'/'):
+					rccache.append((a.replace(webdir, myrcdir), ''))
 		if op.islink(dir):
 			dir = op.realpath(dir)
-		if dirname in kernels and rc not in rclist:
+		if kernel in kernels and rc not in rclist:
 			rclist.append(rc)
 		if rc not in rchash:
 			rchash[rc] = []
-		rchash[rc].append((dir, dirname))
+		rchash[rc].append((dir, kernel))
 	for rc in sorted(rchash):
-		rcdir = op.join(args.rcdir, rc)
-		if not op.exists(rcdir):
-			os.mkdir(rcdir)
+		myrcdir = op.join(args.rcdir, rc)
+		if not op.exists(myrcdir):
+			os.mkdir(myrcdir)
 		for dir, kernel in rchash[rc]:
-			link = op.join(rcdir, kernel)
+			link = op.join(myrcdir, kernel)
 			if op.exists(link):
 				continue
 			if op.lexists(link):
 				os.remove(link)
 			os.symlink(dir, link)
+	if len(webcache) > 0:
+		update_cache(rcdir, rccache)
 	return rclist
 
 def doError(msg, help=False):
@@ -2120,7 +2132,7 @@ if __name__ == '__main__':
 
 	# get the multitests from the folder
 	multitests = find_multitests(args.folder, args.urlprefix,
-		not tarball, args.cache)
+		args.cache, not tarball)
 
 	# regenerate any missing timlines
 	if args.genhtml or args.regenhtml:
@@ -2128,7 +2140,7 @@ if __name__ == '__main__':
 
 	# sort and copy data from the tarball location
 	if tarball:
-		multitests, kernels = sort_and_copy(args, multitests)
+		multitests, kernels, rcs = sort_and_copy(args, multitests)
 
 	# initialize google apis if we will need them
 	if args.htmlonly:
@@ -2154,17 +2166,16 @@ if __name__ == '__main__':
 			pprint('CREATING SUMMARY FOR KERNEL %s' % kernel)
 			args.folder = op.join(args.webdir, kernel)
 			args.urlprefix = op.join(urlprefix, kernel)
-			multitests = find_multitests(args.folder, args.urlprefix)
+			multitests = find_multitests(args.folder, args.urlprefix, args.cache)
 			if not generate_summary_spreadsheet(args, multitests, buglist):
 				pprint('WARNING: no summary for kernel %s' % kernel)
 		if args.rcdir:
 			args.spath = 'pm-graph-test/summary/{rc}_summary'
 			args.urlprefix = urlprefix
-			rcs = rcsort(args, kernels)
 			for rc in rcs:
 				pprint('CREATING SUMMARY FOR RELEASE CANDIDATE %s' % rc)
 				args.folder = op.join(args.rcdir, rc)
-				multitests = find_multitests(args.folder, args.urlprefix)
+				multitests = find_multitests(args.folder, args.urlprefix, args.cache)
 				if not generate_summary_spreadsheet(args, multitests, buglist):
 					pprint('WARNING: no summary for RC %s' % rc)
 	else:
