@@ -1515,17 +1515,23 @@ def createSummarySpreadsheet(args, data, deviceinfo, buglist):
 		pprint('SUCCESS: spreadsheet created -> %s' % sheet['spreadsheetUrl'])
 	return True
 
-def multiTestDesc(indir):
+def multiTestDesc(indir, gettime=False):
 	desc = {'host':'', 'mode':'', 'kernel':'', 'sysinfo':''}
 	dirs = re.split('/+', indir)
 	if len(dirs) < 3:
 		return desc
-	m = re.match('suspend-(?P<m>[a-z]*)-[0-9]*-[0-9]*-[0-9]*min$', dirs[-1])
+	m = re.match('suspend-(?P<m>[a-z]*)-(?P<d>[0-9]{6})-(?P<t>[0-9]{6}).*', dirs[-1])
 	if not m:
 		return desc
 	desc['kernel'] = dirs[-3]
 	desc['host'] = dirs[-2]
 	desc['mode'] = m.group('m')
+	if gettime:
+		try:
+			dt = datetime.strptime(m.group('d')+m.group('t'), '%y%m%d%H%M%S')
+			desc['time'] = dt.strftime('%Y/%m/%d %H:%M:%S')
+		except:
+			pass
 	return desc
 
 def pm_graph_report(args, indir, outpath, urlprefix, buglist, htmlonly):
@@ -1707,8 +1713,9 @@ def load_cache(folder):
 	if testcache and os.access(testcache, os.R_OK):
 		fp, ap = open(testcache, 'r'), op.abspath(folder)
 		for line in fp:
-			if line.startswith(ap):
-				cache.append(line.strip())
+			line = line.strip()
+			if (line.startswith(ap+'/') or ap == line) and op.exists(line):
+				cache.append(line)
 		fp.close()
 	return cache
 
@@ -1869,12 +1876,11 @@ def folder_as_tarball(args):
 		return [tdir]
 	return [tdir, tball]
 
-def sort_and_copy(args, multitestdata):
-	if not args.webdir:
-		doError('you must supply a -webdir when processing a tarball')
-	multitests, kernels = [], []
-	for indir, urlprefix in multitestdata:
-		data, html = False, ''
+def categorize(args, multitests):
+	out = dict()
+	for indir, urlprefix in multitests:
+		desc = multiTestDesc(indir, True)
+		data, html = dict(), ''
 		for dir in sorted(os.listdir(indir)):
 			if not re.match('suspend-[0-9]*-[0-9]*$', dir) or not op.isdir(indir+'/'+dir):
 				continue
@@ -1887,16 +1893,37 @@ def sort_and_copy(args, multitestdata):
 					break
 			if data:
 				break
-		if not data or 'kernel' not in data or 'host' not in data or \
+		for val in ['kernel', 'host', 'mode', 'time']:
+			if val not in data and val in desc and desc[val]:
+				data[val] = desc[val]
+		if 'kernel' not in data or 'host' not in data or \
 			'mode' not in data or 'time' not in data:
 			continue
 		try:
 			dt = datetime.strptime(data['time'], '%Y/%m/%d %H:%M:%S')
 		except:
 			continue
-		kernel, host, test = data['kernel'], data['host'], op.basename(indir)
-		if not re.match('^suspend-.*-[0-9]{6}-[0-9]{6}.*', test):
-			test = 'suspend-%s-%s-multi' % (data['mode'], dt.strftime('%y%m%d-%H%M%S'))
+		if 'sysinfo' in data:
+			machine = '_'.join(data['sysinfo'].split('<i>with</i>')[0].strip().split())
+			machine = machine.replace('/', '_').replace('(', '').replace(')', '')
+		else:
+			machine = ''
+		out[indir] = (data['kernel'], data['host'], data['mode'], machine, dt)
+	return out
+
+def sort_and_copy(args, multitestdata):
+	if not args.webdir:
+		doError('you must supply a -webdir when processing a tarball')
+	multitests, kernels, newinfo = [], [], dict()
+	info = categorize(args, multitestdata)
+	# copy the data over to datadir with links in webdir
+	for indir, urlprefix in multitestdata:
+		if indir not in info:
+			continue
+		kernel, host, mode, machine, dt = info[indir]
+		test = op.basename(indir)
+		if not re.match('^suspend-'+mode+'-[0-9]{6}-[0-9]{6}.*', test):
+			test = 'suspend-%s-%s-multi' % (mode, dt.strftime('%y%m%d-%H%M%S'))
 		kdir = op.join(args.webdir, kernel)
 		if not op.exists(kdir):
 			if args.datadir and args.datadir != args.webdir:
@@ -1919,63 +1946,61 @@ def sort_and_copy(args, multitestdata):
 		copy_tree(indir, outdir)
 		if args.urlprefix:
 			urlprefix = op.join(args.urlprefix, op.relpath(outdir, args.webdir))
-		if kernel not in kernels:
-			kernels.append(kernel)
 		multitests.append((outdir, urlprefix))
+		newinfo[outdir] = info[indir]
 	update_cache(args.webdir, multitests)
-	if args.sortdir:
-		rcs = rcsort(args, kernels)
-	else:
-		rcs = []
-	return (multitests, kernels, rcs)
+	return (multitests, datasort(args, newinfo))
 
 def sfolder(args, type):
-	if type == 'rc':
-		return op.join(op.abspath(args.sortdir), 'rc')
-	return ''
+	return op.join(op.abspath(args.sortdir), type)
 
-def rcsort(args, kernels):
-	if not args.webdir or not args.sortdir:
-		doError('you must supply a -webdir and -sortdir to sort by rc')
-	webcache, rccache = load_cache(args.webdir), []
-	rclist, rchash = [], dict()
-	sortdir, webdir = sfolder(args, 'rc'), op.abspath(args.webdir)
-	if not op.exists(sortdir):
-		os.mkdir(sortdir)
-	for kernel in sorted(os.listdir(webdir)):
-		dir = op.join(webdir, kernel)
-		if not op.isdir(dir):
-			continue
+def datasort(args, info, verbose=False):
+	out = {'rc': [], 'machine': [], 'kernel': []}
+	if not args.sortdir:
+		return out
+	webdir = op.abspath(args.webdir)
+	webcache, newcache = load_cache(args.sortdir), []
+	for indir in info:
+		kernel, host, mode, machine, dt = info[indir]
+		test = op.basename(indir)
 		rc = kernelRC(kernel, True)
-		if not rc:
-			continue
-		if len(webcache) > 0:
-			# add rc links to multitests already in cache
-			mysortdir = op.join(sortdir, rc)
-			for a in webcache:
-				if a.startswith(dir+'/'):
-					rccache.append((a.replace(webdir, mysortdir), ''))
-		if op.islink(dir):
-			dir = op.realpath(dir)
-		if kernel in kernels and rc not in rclist:
-			rclist.append(rc)
-		if rc not in rchash:
-			rchash[rc] = []
-		rchash[rc].append((dir, kernel))
-	for rc in sorted(rchash):
-		mysortdir = op.join(sortdir, rc)
-		if not op.exists(mysortdir):
-			os.mkdir(mysortdir)
-		for dir, kernel in rchash[rc]:
-			link = op.join(mysortdir, kernel)
+		if verbose:
+			print('%s\n\tKLRC: %s\n\tKERN: %s\n\tHOST: %s\n\tMACH: %s\n\tMODE: %s\n\tTIME: %s' %\
+				(indir, rc, kernel, host, machine, mode, dt.strftime('%Y/%m/%d %H:%M:%S')))
+		if kernel not in out['kernel']:
+			out['kernel'].append(kernel)
+		for type in ['rc', 'machine']:
+			sortdir = sfolder(args, type)
+			if not op.exists(sortdir):
+				os.mkdir(sortdir)
+			if type == 'rc':
+				if not rc:
+					pprint('WARNING: %s has no rc' % kernel)
+					continue
+				if rc not in out[type]:
+					out[type].append(rc)
+				mysortdir = op.join(sortdir, rc, mode, host, kernel)
+			elif type == 'machine':
+				if not machine:
+					continue
+				if machine not in out[type]:
+					out[type].append(machine)
+				mysortdir = op.join(sortdir, machine, mode, host, kernel)
+			else:
+				continue
+			if not op.exists(mysortdir):
+				os.makedirs(mysortdir)
+			link = op.join(mysortdir, test)
+			if testcache and link not in webcache and (link, '') not in newcache:
+				newcache.append((link, ''))
 			if op.exists(link):
 				continue
 			if op.lexists(link):
 				os.remove(link)
-			os.symlink(dir, link)
-	if len(webcache) > 0:
-		update_cache(sortdir, rccache)
-	return rclist
+			os.symlink(op.realpath(indir), link)
+	if testcache and len(newcache) > 0:
+		update_cache(args.sortdir, newcache)
+	return out
 
 def doError(msg, help=False):
 	global trash
@@ -2103,6 +2128,7 @@ if __name__ == '__main__':
 	parser.add_argument('-sortdir', metavar='folder')
 	parser.add_argument('-rmtar', action='store_true')
 	parser.add_argument('-cache', action='store_true')
+	parser.add_argument('-sortonly', action='store_true')
 	# required positional arguments
 	parser.add_argument('folder')
 	args = parser.parse_args()
@@ -2114,10 +2140,17 @@ if __name__ == '__main__':
 		if not op.exists(dir) or not op.isdir(dir):
 			doError('%s does not exist' % dir, False)
 
-	if args.folder == 'sorteverything':
+	if args.sortonly:
 		if not args.webdir or not args.sortdir:
-			doError('sortall requires -webdir and -sortdir', False)
-		rcsort(args, [])
+			doError('-sortonly requires -webdir and -sortdir', False)
+		multitests = find_multitests(args.folder, args.urlprefix, args.cache)
+		info = categorize(args, multitests)
+		sortwork = datasort(args, info, True)
+		for s in sortwork:
+			if len(sortwork[s]) > 0:
+				print('Sort by %s' % s.upper())
+				for i in sorted(sortwork[s]):
+					print('\t%s' % i)
 		sys.exit(0)
 
 	if not op.exists(args.folder):
@@ -2156,7 +2189,7 @@ if __name__ == '__main__':
 
 	# sort and copy data from the tarball location
 	if tarball:
-		multitests, kernels, rcs = sort_and_copy(args, multitests)
+		multitests, sortwork = sort_and_copy(args, multitests)
 
 	# initialize google apis if we will need them
 	if args.htmlonly:
@@ -2178,22 +2211,21 @@ if __name__ == '__main__':
 	# generate the high level summary(s) for the test data
 	if tarball:
 		urlprefix = args.urlprefix
-		for kernel in kernels:
+		for kernel in sortwork['kernel']:
 			pprint('CREATING SUMMARY FOR KERNEL %s' % kernel)
 			args.folder = op.join(args.webdir, kernel)
 			args.urlprefix = op.join(urlprefix, kernel)
 			multitests = find_multitests(args.folder, args.urlprefix, args.cache)
 			if not generate_summary_spreadsheet(args, multitests, buglist):
 				pprint('WARNING: no summary for kernel %s' % kernel)
-		if args.sortdir:
-			args.spath = 'pm-graph-test/summary/{rc}_summary'
-			args.urlprefix = urlprefix
-			for rc in rcs:
-				pprint('CREATING SUMMARY FOR RELEASE CANDIDATE %s' % rc)
-				args.folder = op.join(sfolder(args, 'rc'), rc)
-				multitests = find_multitests(args.folder, args.urlprefix, args.cache)
-				if not generate_summary_spreadsheet(args, multitests, buglist):
-					pprint('WARNING: no summary for RC %s' % rc)
+		args.urlprefix = urlprefix
+		for rc in sortwork['rc']:
+			pprint('CREATING SUMMARY FOR RELEASE CANDIDATE %s' % rc)
+			args.spath = 'pm-graph-test/summary/%s_summary' % rc
+			args.folder = op.join(sfolder(args, 'rc'), rc)
+			multitests = find_multitests(args.folder, args.urlprefix, args.cache)
+			if not generate_summary_spreadsheet(args, multitests, buglist):
+				pprint('WARNING: no summary for RC %s' % rc)
 	else:
 		generate_summary_spreadsheet(args, multitests, buglist)
 	empty_trash()
