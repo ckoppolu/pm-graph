@@ -1731,7 +1731,31 @@ def update_cache(folder, multitests):
 			fp.write('%s\n' % a)
 	fp.close()
 
-def find_multitests(folder, urlprefix, cacheonly=False, usecache=True):
+def find_sorted_multitests(args):
+	multitests, folder, urlprefix = [], args.folder, args.urlprefix
+	if not args.sortdir or not args.webdir:
+		return multitests
+	pprint('searching sort folder for multitest data')
+	for dirname, dirnames, filenames in os.walk(folder, followlinks=False):
+		for dir in dirnames:
+			absdir = op.join(dirname, dir)
+			if not op.islink(absdir):
+				continue
+			link = os.readlink(absdir)
+			if not link.startswith(op.abspath(args.webdir)):
+				continue
+			r = op.relpath(link, args.webdir)
+			if urlprefix:
+				urlp = urlprefix if r == '.' else op.join(urlprefix, r)
+			else:
+				urlp = ''
+			multitests.append((link, urlp))
+			pprint('(%d) %s' % (len(multitests), r))
+	pprint('%d multitest folders found' % len(multitests))
+	return multitests
+
+def find_multitests(args, usecache=True):
+	folder, urlprefix, cacheonly = args.folder, args.urlprefix, args.cache
 	# load up multitests folder cache
 	multitests = []
 	if usecache and cacheonly and testcache and os.access(testcache, os.R_OK):
@@ -1958,10 +1982,7 @@ def sfolder(args, type):
 
 def datasort(args, info, verbose=False):
 	out = {'rc': [], 'machine': [], 'kernel': []}
-	if not args.sortdir:
-		return out
 	webdir = op.abspath(args.webdir)
-	webcache, newcache = load_cache(args.sortdir), []
 	for indir in info:
 		kernel, host, mode, machine, dt = info[indir]
 		test = op.basename(indir)
@@ -1971,6 +1992,8 @@ def datasort(args, info, verbose=False):
 				(indir, rc, kernel, host, machine, mode, dt.strftime('%Y/%m/%d %H:%M:%S')))
 		if kernel not in out['kernel']:
 			out['kernel'].append(kernel)
+		if not args.sortdir:
+			continue
 		for type in ['rc', 'machine']:
 			sortdir = sfolder(args, type)
 			if not op.exists(sortdir):
@@ -1993,15 +2016,11 @@ def datasort(args, info, verbose=False):
 			if not op.exists(mysortdir):
 				os.makedirs(mysortdir)
 			link = op.join(mysortdir, test)
-			if testcache and link not in webcache and (link, '') not in newcache:
-				newcache.append((link, ''))
 			if op.exists(link):
 				continue
 			if op.lexists(link):
 				os.remove(link)
-			os.symlink(op.realpath(indir), link)
-	if testcache and len(newcache) > 0:
-		update_cache(args.sortdir, newcache)
+			os.symlink(op.abspath(indir), link)
 	return out
 
 def doError(msg, help=False):
@@ -2145,7 +2164,7 @@ if __name__ == '__main__':
 	if args.sortonly:
 		if not args.webdir or not args.sortdir:
 			doError('-sortonly requires -webdir and -sortdir', False)
-		multitests = find_multitests(args.folder, args.urlprefix, args.cache)
+		multitests = find_multitests(args)
 		info = categorize(args, multitests)
 		sortwork = datasort(args, info, True)
 		for s in sortwork:
@@ -2182,8 +2201,7 @@ if __name__ == '__main__':
 		buglist = pickle.load(open(args.bugfile, 'rb'))
 
 	# get the multitests from the folder
-	multitests = find_multitests(args.folder, args.urlprefix,
-		args.cache, not tarball)
+	multitests = find_multitests(args, not tarball)
 
 	# regenerate any missing timlines
 	if args.genhtml or args.regenhtml:
@@ -2217,7 +2235,7 @@ if __name__ == '__main__':
 			pprint('CREATING SUMMARY FOR KERNEL %s' % kernel)
 			args.folder = op.join(args.webdir, kernel)
 			args.urlprefix = op.join(urlprefix, kernel)
-			multitests = find_multitests(args.folder, args.urlprefix, args.cache)
+			multitests = find_multitests(args)
 			if not generate_summary_spreadsheet(args, multitests, buglist):
 				pprint('WARNING: no summary for kernel %s' % kernel)
 		args.urlprefix = urlprefix
@@ -2225,7 +2243,7 @@ if __name__ == '__main__':
 			pprint('CREATING SUMMARY FOR RELEASE CANDIDATE %s' % rc)
 			args.spath = 'pm-graph-test/summary/%s_summary' % rc
 			args.folder = op.join(sfolder(args, 'rc'), rc)
-			multitests = find_multitests(args.folder, args.urlprefix, args.cache)
+			multitests = find_multitests(args)
 			if not generate_summary_spreadsheet(args, multitests, buglist):
 				pprint('WARNING: no summary for RC %s' % rc)
 	else:
