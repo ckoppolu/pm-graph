@@ -1887,6 +1887,15 @@ def generate_summary_spreadsheet(args, multitests, buglist):
 		fp.close()
 	return True
 
+def generate_sort_spreadsheet(args, buglist, type, list):
+	for val in list:
+		pprint('CREATING SUMMARY FOR %s %s' % (type.upper(), val))
+		args.spath = 'pm-graph-test/summary_by_%s/%s_summary' % (type, val)
+		args.folder = op.join(sfolder(args, type), val)
+		multitests = find_sorted_multitests(args)
+		if not generate_summary_spreadsheet(args, multitests, buglist):
+			pprint('WARNING: no summary for %s %s' % (type, val))
+
 def folder_as_tarball(args):
 	if not args.webdir:
 		doError('you must supply a -webdir when processing a tarball')
@@ -2149,7 +2158,8 @@ if __name__ == '__main__':
 	parser.add_argument('-sortdir', metavar='folder')
 	parser.add_argument('-rmtar', action='store_true')
 	parser.add_argument('-cache', action='store_true')
-	parser.add_argument('-sortonly', action='store_true')
+	parser.add_argument('-sort', metavar='value',
+		choices=['test', 'rc', 'machine'], default='')
 	# required positional arguments
 	parser.add_argument('folder')
 	args = parser.parse_args()
@@ -2160,26 +2170,6 @@ if __name__ == '__main__':
 			continue
 		if not op.exists(dir) or not op.isdir(dir):
 			doError('%s does not exist' % dir, False)
-
-	if args.sortonly:
-		if not args.webdir or not args.sortdir:
-			doError('-sortonly requires -webdir and -sortdir', False)
-		multitests = find_multitests(args)
-		info = categorize(args, multitests)
-		sortwork = datasort(args, info, True)
-		for s in sortwork:
-			if len(sortwork[s]) > 0:
-				print('Sort by %s' % s.upper())
-				for i in sorted(sortwork[s]):
-					print('\t%s' % i)
-		sys.exit(0)
-
-	if not op.exists(args.folder):
-		doError('%s does not exist' % args.folder, False)
-
-	if not op.isdir(args.folder):
-		tarball = True
-		trash = folder_as_tarball(args)
 
 	if args.urlprefix and args.urlprefix[-1] == '/':
 		args.urlprefix = args.urlprefix[:-1]
@@ -2199,6 +2189,45 @@ if __name__ == '__main__':
 			doError('%s does not exist' % args.bugfile, False)
 		args.bugzilla = True
 		buglist = pickle.load(open(args.bugfile, 'rb'))
+
+	if args.sort:
+		if not args.webdir or not args.sortdir:
+			doError('-sort requires -webdir and -sortdir', False)
+		if args.sort == 'test':
+			if not op.exists(args.folder):
+				doError('%s does not exist' % args.folder, False)
+			f, w = op.abspath(args.folder), op.abspath(args.webdir)
+			if op.commonprefix([f, w]) != w:
+				doError('"-sort test" only works on folders inside -webdir', False)
+			multitests = find_multitests(args)
+			info = categorize(args, multitests)
+			sortwork = datasort(args, info, True)
+			for s in sortwork:
+				if len(sortwork[s]) > 0:
+					print('Sort by %s' % s.upper())
+					for i in sorted(sortwork[s]):
+						print('\t%s' % i)
+		elif args.sort in ['machine', 'rc']:
+			dir, value = sfolder(args, args.sort), op.basename(args.folder)
+			if value == 'all':
+				values = []
+				for val in sorted(os.listdir(dir)):
+					if op.isdir(op.join(dir, val)):
+						values.append(val)
+			elif op.exists(op.join(dir, value)):
+				values = [value]
+			else:
+				doError('%s is not a %s name' % (args.folder, args.sort), False)
+			initGoogleAPIs()
+			generate_sort_spreadsheet(args, buglist, args.sort, values)
+		sys.exit(0)
+
+	if not op.exists(args.folder):
+		doError('%s does not exist' % args.folder, False)
+
+	if not op.isdir(args.folder):
+		tarball = True
+		trash = folder_as_tarball(args)
 
 	# get the multitests from the folder
 	multitests = find_multitests(args, not tarball)
@@ -2239,13 +2268,8 @@ if __name__ == '__main__':
 			if not generate_summary_spreadsheet(args, multitests, buglist):
 				pprint('WARNING: no summary for kernel %s' % kernel)
 		args.urlprefix = urlprefix
-		for rc in sortwork['rc']:
-			pprint('CREATING SUMMARY FOR RELEASE CANDIDATE %s' % rc)
-			args.spath = 'pm-graph-test/summary/%s_summary' % rc
-			args.folder = op.join(sfolder(args, 'rc'), rc)
-			multitests = find_sorted_multitests(args)
-			if not generate_summary_spreadsheet(args, multitests, buglist):
-				pprint('WARNING: no summary for RC %s' % rc)
+		generate_sort_spreadsheet(args, buglist, 'rc', sortwork['rc'])
+		generate_sort_spreadsheet(args, buglist, 'machine', sortwork['machine'])
 	else:
 		generate_summary_spreadsheet(args, multitests, buglist)
 	empty_trash()
