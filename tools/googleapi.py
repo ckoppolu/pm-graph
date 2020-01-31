@@ -124,7 +124,10 @@ def google_api_command(cmd, arg1=None, arg2=None, arg3=None, retry=0):
 
 	try:
 		if cmd == 'list':
-			return gdrive.files().list(q=arg1).execute()
+			res = gdrive.files().list(q=arg1, pageSize=1000).execute()
+			if 'nextPageToken' in res:
+				print('WARNING: list exceeded max results %s' % arg1)
+			return res
 		elif cmd == 'get':
 			return gdrive.files().get(fileId=arg1, fields='parents').execute()
 		elif cmd == 'rename':

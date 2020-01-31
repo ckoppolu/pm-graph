@@ -1787,11 +1787,13 @@ def generate_test_spreadsheets(args, multitests, buglist):
 	cexec = sys.executable+' '+op.abspath(sys.argv[0])
 	if args.htmlonly:
 		cexec += ' -htmlonly'
+	tempfile = ''
 	if args.bugzilla:
 		fp = NamedTemporaryFile(delete=False)
 		pickle.dump(buglist, fp)
 		fp.close()
 		cmdhead = '%s -bugfile %s -create test -tpath "%s"' % (cexec, fp.name, args.tpath)
+		tempfile = fp.name
 	else:
 		cmdhead = '%s -create test -tpath "%s"' % (cexec, args.tpath)
 	cmds = []
@@ -1799,8 +1801,8 @@ def generate_test_spreadsheets(args, multitests, buglist):
 		cmds.append(cmdhead + ' -urlprefix "{0}" {1}'.format(urlprefix, indir))
 	mp = MultiProcess(cmds, 86400)
 	mp.run(args.parallel)
-	if op.exists(fp.name):
-		os.remove(fp.name)
+	if tempfile and op.exists(tempfile):
+		os.remove(tempfile)
 
 def generate_summary_spreadsheet(args, multitests, buglist):
 	global deviceinfo
@@ -1979,7 +1981,7 @@ def datasort(args, info, verbose=False):
 					continue
 				if rc not in out[type]:
 					out[type].append(rc)
-				mysortdir = op.join(sortdir, rc, mode, host, kernel)
+				mysortdir = op.join(sortdir, rc, kernel, host)
 			elif type == 'machine':
 				if not machine:
 					continue
