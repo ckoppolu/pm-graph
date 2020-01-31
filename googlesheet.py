@@ -2243,7 +2243,7 @@ if __name__ == '__main__':
 			pprint('CREATING SUMMARY FOR RELEASE CANDIDATE %s' % rc)
 			args.spath = 'pm-graph-test/summary/%s_summary' % rc
 			args.folder = op.join(sfolder(args, 'rc'), rc)
-			multitests = find_multitests(args)
+			multitests = find_sorted_multitests(args)
 			if not generate_summary_spreadsheet(args, multitests, buglist):
 				pprint('WARNING: no summary for RC %s' % rc)
 	else:
