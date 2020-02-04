@@ -1796,7 +1796,10 @@ def find_multitests(args, usecache=True):
 def generate_test_timelines(args, multitests):
 	pprint('GENERATING SLEEPGRAPH TIMELINES')
 	sg.sysvals.usedevsrc = True
+	i = 1
 	for indir, urlprefix in multitests:
+		pprint('(%d) %s' % (i, indir))
+		i += 1
 		if args.parallel >= 0:
 			genHtml(indir, args.parallel, args.regenhtml)
 		else:
@@ -1935,6 +1938,13 @@ def folder_as_tarball(args):
 	return [tdir, tball]
 
 def categorize(args, multitests):
+	machswap = dict()
+	if args.machswap and op.exists(args.machswap):
+		with open(args.machswap, 'r') as fp:
+			for line in fp:
+				m = line.strip().split()
+				if len(m) == 2:
+					machswap[m[0]] = m[1]
 	out = dict()
 	for indir, urlprefix in multitests:
 		desc = multiTestDesc(indir, True)
@@ -1964,6 +1974,8 @@ def categorize(args, multitests):
 		if 'sysinfo' in data:
 			machine = '_'.join(data['sysinfo'].split('<i>with</i>')[0].strip().split())
 			machine = machine.replace('/', '_').replace('(', '').replace(')', '')
+			if machine in machswap:
+				machine = machswap[machine]
 		else:
 			machine = ''
 		out[indir] = (data['kernel'], data['host'], data['mode'], machine, dt)
@@ -2179,6 +2191,7 @@ if __name__ == '__main__':
 	parser.add_argument('-webdir', metavar='folder')
 	parser.add_argument('-datadir', metavar='folder')
 	parser.add_argument('-sortdir', metavar='folder')
+	parser.add_argument('-machswap', metavar='file')
 	parser.add_argument('-rmtar', action='store_true')
 	parser.add_argument('-cache', action='store_true')
 	parser.add_argument('-sort', metavar='value',

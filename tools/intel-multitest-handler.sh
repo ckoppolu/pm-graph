@@ -24,10 +24,11 @@ if [ -z "$DISK" ]; then
 	exit
 fi
 
-GS="python3 /home/sleepgraph/pm-graph/googlesheet.py"
+GS="python3 $HOME/pm-graph/googlesheet.py"
 URL="http://otcpl-perf-data.jf.intel.com/pm-graph-test"
-WEBDIR="/home/sleepgraph/pm-graph-test"
-SORTDIR="/home/sleepgraph/pm-graph-sort"
+WEBDIR="$HOME/pm-graph-test"
+SORTDIR="$HOME/pm-graph-sort"
 DATADIR="$DISK/pm-graph-test"
+MS="$HOME/.machswap"
 
-$GS -webdir "$WEBDIR" -datadir "$DATADIR" -sortdir "$SORTDIR" -stype sheet -create both -bugzilla -urlprefix "$URL" -parallel 0 -genhtml -cache -rmtar $1
+$GS -webdir "$WEBDIR" -datadir "$DATADIR" -sortdir "$SORTDIR" -urlprefix "$URL" -machswap "$MS" -stype sheet -create both -bugzilla -parallel 0 -genhtml -cache -rmtar $1
