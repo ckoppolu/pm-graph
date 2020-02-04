@@ -1808,25 +1808,57 @@ def generate_test_spreadsheets(args, multitests, buglist):
 			pm_graph_report(args, indir, args.tpath, urlprefix, buglist, args.htmlonly)
 		return
 	# multiprocess support, requires parallel arg and multiple tests
-	cexec = sys.executable+' '+op.abspath(sys.argv[0])
+	cexec, tmp = sys.executable+' '+op.abspath(sys.argv[0]), ''
+	cmdhead = '%s -create test -tpath "%s"' % (cexec, args.tpath)
 	if args.htmlonly:
-		cexec += ' -htmlonly'
-	tempfile = ''
+		cmdhead += ' -htmlonly'
 	if args.bugzilla:
 		fp = NamedTemporaryFile(delete=False)
 		pickle.dump(buglist, fp)
+		tmp = fp.name
+		cmdhead += ' -bugfile %s' % tmp
 		fp.close()
-		cmdhead = '%s -bugfile %s -create test -tpath "%s"' % (cexec, fp.name, args.tpath)
-		tempfile = fp.name
-	else:
-		cmdhead = '%s -create test -tpath "%s"' % (cexec, args.tpath)
 	cmds = []
 	for indir, urlprefix in multitests:
-		cmds.append(cmdhead + ' -urlprefix "{0}" {1}'.format(urlprefix, indir))
+		if urlprefix:
+			cmds.append('%s -urlprefix "%s" %s' % (cmdhead, urlprefix, indir))
+		else:
+			cmds.append('%s %s' % (cmdhead, indir))
 	mp = MultiProcess(cmds, 86400)
 	mp.run(args.parallel)
-	if tempfile and op.exists(tempfile):
-		os.remove(tempfile)
+	if tmp and op.exists(tmp):
+		os.remove(tmp)
+
+def generate_sort_spreadsheet(args, buglist, type, list):
+	if args.parallel < 0 or len(list) < 2:
+		for val in list:
+			pprint('CREATING SUMMARY FOR %s %s' % (type.upper(), val))
+			args.spath = 'pm-graph-test/summary_by_%s/%s_summary' % (type, val)
+			args.folder = op.join(sfolder(args, type), val)
+			multitests = find_sorted_multitests(args)
+			if not generate_summary_spreadsheet(args, multitests, buglist):
+				pprint('WARNING: no summary for %s %s' % (type, val))
+		return
+	# multiprocess support, requires parallel arg and multiple tests
+	cexec, tmp = sys.executable+' '+op.abspath(sys.argv[0]), ''
+	cmdhead = '%s -webdir "%s" -sortdir "%s" -sort "%s"' % \
+		(cexec, args.webdir, args.sortdir, args.sort)
+	if args.urlprefix:
+		cmdhead += ' -urlprefix "%s"' % args.urlprefix
+	if args.bugzilla:
+		fp = NamedTemporaryFile(delete=False)
+		pickle.dump(buglist, fp)
+		tmp = fp.name
+		cmdhead += ' -bugfile %s' % tmp
+		fp.close()
+	cmds = []
+	for value in list:
+		cmds.append('%s %s' % (cmdhead, value))
+	mp = MultiProcess(cmds, 86400)
+	ps = 2 if args.parallel > 2 else args.parallel
+	mp.run(ps)
+	if tmp and op.exists(tmp):
+		os.remove(tmp)
 
 def generate_summary_spreadsheet(args, multitests, buglist):
 	global deviceinfo
@@ -1886,15 +1918,6 @@ def generate_summary_spreadsheet(args, multitests, buglist):
 		fp.write(out)
 		fp.close()
 	return True
-
-def generate_sort_spreadsheet(args, buglist, type, list):
-	for val in list:
-		pprint('CREATING SUMMARY FOR %s %s' % (type.upper(), val))
-		args.spath = 'pm-graph-test/summary_by_%s/%s_summary' % (type, val)
-		args.folder = op.join(sfolder(args, type), val)
-		multitests = find_sorted_multitests(args)
-		if not generate_summary_spreadsheet(args, multitests, buglist):
-			pprint('WARNING: no summary for %s %s' % (type, val))
 
 def folder_as_tarball(args):
 	if not args.webdir:
