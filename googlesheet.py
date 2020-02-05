@@ -173,6 +173,7 @@ def infoDevices(folder, file, basename, kernel):
 			if name in deviceinfo[type]:
 				if entry['worst'] > deviceinfo[type][name]['worst']:
 					deviceinfo[type][name]['worst'] = entry['worst']
+					deviceinfo[type][name]['kernel'] = entry['kernel']
 					deviceinfo[type][name]['host'] = entry['host']
 					deviceinfo[type][name]['url'] = entry['url']
 				deviceinfo[type][name]['count'] += entry['count']
@@ -1361,8 +1362,8 @@ def createSummarySpreadsheet(args, data, deviceinfo, buglist):
 				{'userEnteredValue':{'numberValue':float('%.3f' % d['average'])}},
 				{'userEnteredValue':{'numberValue':d['count']}},
 				{'userEnteredValue':{'numberValue':d['worst']}},
-				{'userEnteredValue':{'stringValue':d['host']}},
 				{'userEnteredValue':{'stringValue':d['kernel']}},
+				{'userEnteredValue':{'stringValue':d['host']}},
 				{'userEnteredValue':{'formulaValue':gslink.format(url, 'html')}},
 			]}
 			s23data[type].append(r)
