@@ -35,6 +35,7 @@ import os.path as op
 from tools.googleapi import setupGoogleAPIs, initGoogleAPIs, google_api_command, gdrive_find, gdrive_mkdir, gdrive_backup
 from tools.parallel import MultiProcess
 
+gdriveids = dict()
 gslink = '=HYPERLINK("{0}","{1}")'
 gsperc = '=({0}/{1})'
 deviceinfo = {'suspend':dict(),'resume':dict()}
@@ -692,12 +693,21 @@ def gdrive_path(outpath, data, focus=''):
 		gpath = outpath.format(**desc)
 	return gpath
 
+def gdrive_link_cache_reset():
+	global gdriveids
+	gdriveids = dict()
+
 def gdrive_link(outpath, data, focus=''):
+	global gdriveids
 	gpath = gdrive_path(outpath, data, focus)
 	if not gpath:
 		return ''
 	linkfmt = 'https://drive.google.com/open?id={0}'
-	id = gdrive_find(gpath)
+	if gpath in gdriveids:
+		id = gdriveids[gpath]
+	else:
+		id = gdrive_find(gpath)
+		gdriveids[gpath] = id
 	if id:
 		return linkfmt.format(id)
 	return ''
@@ -1873,6 +1883,7 @@ def generate_summary_spreadsheet(args, multitests, buglist):
 	global deviceinfo
 
 	# clear the global data on each high level summary
+	gdrive_link_cache_reset()
 	deviceinfo = {'suspend':dict(),'resume':dict()}
 	for id in buglist:
 		if 'match' in buglist[id]:
