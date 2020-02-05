@@ -132,7 +132,7 @@ def columnValues(colidx, row):
 		values.append(value)
 	return values
 
-def infoDevices(folder, file, basename):
+def infoDevices(folder, file, basename, kernel):
 	global deviceinfo
 
 	colidx = dict()
@@ -167,6 +167,7 @@ def infoDevices(folder, file, basename):
 				'total': count * avgtime,
 				'worst': wrstime,
 				'host': host,
+				'kernel': kernel,
 				'url': url
 			}
 			if name in deviceinfo[type]:
@@ -367,7 +368,7 @@ def info(file, data, args):
 
 	dfile = file.replace('summary.html', 'summary-devices.html')
 	if op.exists(dfile):
-		infoDevices(args.folder, dfile, 'summary-devices.html')
+		infoDevices(args.folder, dfile, 'summary-devices.html', desc['kernel'])
 	else:
 		pprint('WARNING: device summary is missing:\n%s\nPlease rerun sleepgraph -summary' % dfile)
 
@@ -1154,8 +1155,8 @@ def summarizeBuglist(args, data, buglist):
 			buglist[id]['matches'] = len(buglist[id]['match'])
 
 def gsissuesort(k):
-	tests = k['values'][5]['userEnteredValue']['numberValue']
-	val = k['values'][6]['userEnteredValue']['formulaValue'][2:-1].split('/')
+	tests = k['values'][6]['userEnteredValue']['numberValue']
+	val = k['values'][7]['userEnteredValue']['formulaValue'][2:-1].split('/')
 	perc = float(val[0])*100.0/float(val[1])
 	return (perc, tests)
 
@@ -1180,10 +1181,13 @@ def createSummarySpreadsheet(args, data, deviceinfo, buglist):
 		['Kernel','Host','Mode','Test Detail','Health','Duration','Avg(t)',
 			'Total','Issues','Pass','Fail', 'Hang','Error','PkgPC10','Syslpi',
 			'Wifi','Smax','Smed','Smin','Rmax','Rmed','Rmin'],
-		['Host','Mode','Test Detail','Kernel Issue','Count','Tests','Fail Rate','First instance'],
-		['Device','Average Time','Count','Worst Time','Host (worst time)','Link (worst time)'],
+		['Kernel','Host','Mode','Test Detail','Kernel Issue','Count','Tests',
+			'Fail Rate','First instance'],
+		['Device','Average Time','Count','Worst Time','Kernel (worst time)',
+			'Host (worst time)','Link (worst time)'],
 		['Device','Count']+hosts,
-		['Bugzilla','Description','Kernel','Host','Test Run','Count','Rate','First instance'],
+		['Bugzilla','Description','Kernel','Host','Test Run','Count','Rate',
+			'First instance'],
 	]
 	headrows = []
 	for header in headers:
@@ -1290,6 +1294,7 @@ def createSummarySpreadsheet(args, data, deviceinfo, buglist):
 			else:
 				html = {'stringValue':e['url']}
 			r = {'values':[
+				{'userEnteredValue':linkcell['kernel']},
 				{'userEnteredValue':linkcell['host']},
 				{'userEnteredValue':linkcell['mode']},
 				{'userEnteredValue':linkcell['test']},
@@ -1357,6 +1362,7 @@ def createSummarySpreadsheet(args, data, deviceinfo, buglist):
 				{'userEnteredValue':{'numberValue':d['count']}},
 				{'userEnteredValue':{'numberValue':d['worst']}},
 				{'userEnteredValue':{'stringValue':d['host']}},
+				{'userEnteredValue':{'stringValue':d['kernel']}},
 				{'userEnteredValue':{'formulaValue':gslink.format(url, 'html')}},
 			]}
 			s23data[type].append(r)
@@ -1450,7 +1456,7 @@ def createSummarySpreadsheet(args, data, deviceinfo, buglist):
 		{'repeatCell': {
 			'range': {
 				'sheetId': 1, 'startRowIndex': 1,
-				'startColumnIndex': 6, 'endColumnIndex': 7,
+				'startColumnIndex': 7, 'endColumnIndex': 8,
 			},
 			'cell': {
 				'userEnteredFormat': {
@@ -1471,7 +1477,7 @@ def createSummarySpreadsheet(args, data, deviceinfo, buglist):
 		{'autoResizeDimensions': {'dimensions': {'sheetId': 0,
 			'dimension': 'COLUMNS', 'startIndex': 0, 'endIndex': 23}}},
 		{'autoResizeDimensions': {'dimensions': {'sheetId': 1,
-			'dimension': 'COLUMNS', 'startIndex': 0, 'endIndex': 8}}},
+			'dimension': 'COLUMNS', 'startIndex': 0, 'endIndex': 9}}},
 		{'autoResizeDimensions': {'dimensions': {'sheetId': 2,
 			'dimension': 'COLUMNS', 'startIndex': 0, 'endIndex': 12}}},
 		{'autoResizeDimensions': {'dimensions': {'sheetId': 3,
@@ -1858,8 +1864,7 @@ def generate_sort_spreadsheet(args, buglist, type, list):
 	for value in list:
 		cmds.append('%s %s' % (cmdhead, value))
 	mp = MultiProcess(cmds, 86400)
-	ps = 2 if args.parallel > 2 else args.parallel
-	mp.run(ps)
+	mp.run(3)
 	if tmp and op.exists(tmp):
 		os.remove(tmp)
 
