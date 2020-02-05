@@ -693,10 +693,6 @@ def gdrive_path(outpath, data, focus=''):
 		gpath = outpath.format(**desc)
 	return gpath
 
-def gdrive_link_cache_reset():
-	global gdriveids
-	gdriveids = dict()
-
 def gdrive_link(outpath, data, focus=''):
 	global gdriveids
 	gpath = gdrive_path(outpath, data, focus)
@@ -1883,7 +1879,6 @@ def generate_summary_spreadsheet(args, multitests, buglist):
 	global deviceinfo
 
 	# clear the global data on each high level summary
-	gdrive_link_cache_reset()
 	deviceinfo = {'suspend':dict(),'resume':dict()}
 	for id in buglist:
 		if 'match' in buglist[id]:
