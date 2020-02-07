@@ -4,6 +4,7 @@ import os
 import sys
 import time
 import fcntl
+import os.path as op
 
 httplib2 = discovery = ofile = oclient = otools = None
 gdrive = 0
@@ -194,13 +195,17 @@ def gdrive_find(gpath):
 	return ''
 
 def gdrive_mkdir(dir='', readonly=False):
-	fmime = 'application/vnd.google-apps.folder'
-	pid = 'root'
+	global gdriveids
+	fmime, pid, cpath = 'application/vnd.google-apps.folder', 'root', ''
 	if not dir:
 		return pid
 	if not readonly:
 		lock = mutex_lock(60)
 	for subdir in dir.split('/'):
+		cpath = op.join(cpath, subdir) if cpath else subdir
+		if cpath in gdriveids and gdriveids[cpath]:
+			pid = gdriveids[cpath]
+			continue
 		# get a list of folders in this subdir
 		query = 'trashed = false and mimeType = \'%s\' and \'%s\' in parents' % (fmime, pid)
 		results = google_api_command('list', query)
@@ -212,6 +217,7 @@ def gdrive_mkdir(dir='', readonly=False):
 		# id this subdir exists, move on
 		if id:
 			pid = id
+			gdriveids[cpath] = id
 			continue
 		# create the subdir
 		if readonly:
@@ -220,6 +226,7 @@ def gdrive_mkdir(dir='', readonly=False):
 			metadata = {'name': subdir, 'mimeType': fmime, 'parents': [pid]}
 			file = google_api_command('create', metadata)
 			pid = file.get('id')
+			gdriveids[cpath] = pid
 	if not readonly:
 		mutex_unlock(lock)
 	return pid

@@ -1210,7 +1210,8 @@ def createSummarySpreadsheet(args, data, deviceinfo, buglist, prefs=''):
 	s1data = []
 	hostlink = dict()
 	worst = {'wsd':dict(), 'wrd':dict()}
-	for test in sorted(data, key=lambda v:(v['kernel'],v['host'],v['mode'],v['date'],v['time'])):
+	for test in sorted(data, key=lambda v:(v['kernel'],v['host'],v['mode'],\
+		v['date'],v['time']), reverse=(True if prefs == 'machine' else False)):
 		extra = {
 			'pkgpc10':{'stringValue': ''},
 			'syslpi':{'stringValue': ''},
@@ -1306,8 +1307,11 @@ def createSummarySpreadsheet(args, data, deviceinfo, buglist, prefs=''):
 				{'userEnteredValue':html},
 			]}
 			s1data.append(r)
-	s1data = [{'values':headrows[1]}] + \
-		sorted(s1data, key=lambda k:gsissuesort(k), reverse=True)
+	if prefs == 'machine':
+		s1data = [{'values':headrows[1]}] + s1data
+	else:
+		s1data = [{'values':headrows[1]}] + \
+			sorted(s1data, key=lambda k:gsissuesort(k), reverse=True)
 
 	# Bugzilla tab
 	if args.bugzilla:
