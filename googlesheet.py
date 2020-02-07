@@ -35,7 +35,6 @@ import os.path as op
 from tools.googleapi import setupGoogleAPIs, initGoogleAPIs, google_api_command, gdrive_find, gdrive_mkdir, gdrive_backup
 from tools.parallel import MultiProcess
 
-gdriveids = dict()
 gslink = '=HYPERLINK("{0}","{1}")'
 gsperc = '=({0}/{1})'
 deviceinfo = {'suspend':dict(),'resume':dict()}
@@ -694,16 +693,11 @@ def gdrive_path(outpath, data, focus=''):
 	return gpath
 
 def gdrive_link(outpath, data, focus=''):
-	global gdriveids
 	gpath = gdrive_path(outpath, data, focus)
 	if not gpath:
 		return ''
 	linkfmt = 'https://drive.google.com/open?id={0}'
-	if gpath in gdriveids:
-		id = gdriveids[gpath]
-	else:
-		id = gdrive_find(gpath)
-		gdriveids[gpath] = id
+	id = gdrive_find(gpath)
 	if id:
 		return linkfmt.format(id)
 	return ''
@@ -1167,7 +1161,7 @@ def gsissuesort(k):
 	perc = float(val[0])*100.0/float(val[1])
 	return (perc, tests)
 
-def createSummarySpreadsheet(args, data, deviceinfo, buglist):
+def createSummarySpreadsheet(args, data, deviceinfo, buglist, prefs=''):
 	gpath = gdrive_path(args.spath, data[0])
 	dir, title = op.dirname(gpath), op.basename(gpath)
 	kfid = gdrive_mkdir(dir)
@@ -1334,7 +1328,11 @@ def createSummarySpreadsheet(args, data, deviceinfo, buglist):
 			if 'match' not in buglist[id]:
 				continue
 			matches = buglist[id]['match']
-			for m in sorted(matches, key=lambda k:(k['rate'], k['count'], k['host'], k['mode']), reverse=True):
+			if prefs == 'machine':
+				slist = sorted(matches, key=lambda k:(k['kernel'], k['rate'], k['count'], k['mode']), reverse=True)
+			else:
+				slist = sorted(matches, key=lambda k:(k['rate'], k['count'], k['host'], k['mode']), reverse=True)
+			for m in slist:
 				if m['testlink']:
 					testlink = {'formulaValue':gslink.format(m['testlink'], m['testname'])}
 				else:
@@ -1852,7 +1850,7 @@ def generate_sort_spreadsheet(args, buglist, type, list):
 			args.spath = 'pm-graph-test/summary_by_%s/%s_summary' % (type, val)
 			args.folder = op.join(sfolder(args, type), val)
 			multitests = find_sorted_multitests(args)
-			if not generate_summary_spreadsheet(args, multitests, buglist):
+			if not generate_summary_spreadsheet(args, multitests, buglist, type):
 				pprint('WARNING: no summary for %s %s' % (type, val))
 		return
 	# multiprocess support, requires parallel arg and multiple tests
@@ -1871,11 +1869,11 @@ def generate_sort_spreadsheet(args, buglist, type, list):
 	for value in list:
 		cmds.append('%s %s' % (cmdhead, value))
 	mp = MultiProcess(cmds, 86400)
-	mp.run(3)
+	mp.run(args.parallel)
 	if tmp and op.exists(tmp):
 		os.remove(tmp)
 
-def generate_summary_spreadsheet(args, multitests, buglist):
+def generate_summary_spreadsheet(args, multitests, buglist, prefs=''):
 	global deviceinfo
 
 	# clear the global data on each high level summary
@@ -1907,7 +1905,7 @@ def generate_summary_spreadsheet(args, multitests, buglist):
 
 	pprint('creating %s summary' % args.stype)
 	if args.stype == 'sheet':
-		createSummarySpreadsheet(args, data, deviceinfo, buglist)
+		createSummarySpreadsheet(args, data, deviceinfo, buglist, prefs)
 		if not args.mail:
 			return True
 		pprint('creating html summary to mail')

@@ -9,6 +9,7 @@ httplib2 = discovery = ofile = oclient = otools = None
 gdrive = 0
 gsheet = 0
 lockfile = '/tmp/googleapi.lock'
+gdriveids = dict()
 
 def mutex_lock(wait=1):
 	global lockfile
@@ -167,18 +168,28 @@ def google_api_command(cmd, arg1=None, arg2=None, arg3=None, retry=0):
 	return False
 
 def gdrive_find(gpath):
+	global gdriveids
+	# cache the whole file path
+	if gpath in gdriveids and gdriveids[gpath]:
+		return gdriveids[gpath]
 	dir, file = os.path.dirname(gpath), os.path.basename(gpath)
 	if dir in ['.', '/']:
 		dir = ''
-	pid = gdrive_mkdir(dir, readonly=True)
+	# cache the dir
+	if dir in gdriveids and gdriveids[dir]:
+		pid = gdriveids[dir]
+	else:
+		pid = gdrive_mkdir(dir, readonly=True)
 	if not pid:
 		return ''
 	if not file or file == '.':
+		gdriveids[gpath] = pid
 		return pid
 	query = 'trashed = false and \'%s\' in parents and name = \'%s\'' % (pid, file)
 	results = google_api_command('list', query)
 	out = results.get('files', [])
 	if len(out) > 0 and 'id' in out[0]:
+		gdriveids[gpath] = out[0]['id']
 		return out[0]['id']
 	return ''
 
